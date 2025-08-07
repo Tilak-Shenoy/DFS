@@ -58,6 +58,7 @@ func UpdateDict(filename string, node int, dict map[string][]int) {
 		if _, exists := dict[key]; exists {
 			dict[key] = append(dict[key], node)
 		} else {
+			//TS: Do you not need to add the key to the new array here?
 			dict[key] = []int{node}
 		}
 	}
@@ -145,7 +146,6 @@ func (n *TreeNode) Lock(path string, exclusive bool, storageNodes []int, client_
 	<-req.done
 
 	j := 0
-	//TS: Test case specific issues
 	for _, str := range parts {
 		if str != "" {
 			parts[j] = str
@@ -273,7 +273,6 @@ func (node *TreeNode) processQueue() {
 			node.WriteAccess = true
 			close(req.done)                         // Notify the requester
 			node.AccessQueue = node.AccessQueue[1:] // Dequeue
-			//TS: Mutex.unlock?
 		} else if !req.Exclusive && !node.WriteAccess {
 			// Grant shared access to consecutive shared requests
 			for len(node.AccessQueue) > 0 && !node.AccessQueue[0].Exclusive {

@@ -14,6 +14,8 @@ public class RegisterRequest {
         this.files = files;
     }
 
+    public RegisterRequest(){}
+
     @Override
     public String toString() {
         String result = "RegisterRequest: " + "storage_ip = " + storage_ip + " client_port = " +
