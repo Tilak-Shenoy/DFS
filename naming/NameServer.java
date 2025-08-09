@@ -13,7 +13,10 @@ import javax.servlet.http.HttpServletRequest;
 
 import com.google.gson.Gson;
 
+import common.BooleanReturn;
 import common.ErrorRegistrationResponse;
+import common.ExceptionReturn;
+import common.PathRequest;
 import common.RegisterRequest;
 import common.SuccessfulRegistrationResponse;
 import util.Util;
@@ -137,6 +140,71 @@ public class NameServer {
             }
             dict.get(part).add(node);
         }
+    }
+
+    private String sanitizePath(String filePath){
+        String cleanPath = filePath.trim();
+        if(cleanPath=="."){
+            return "/";
+        }
+        return cleanPath;
+    }
+
+    public void isDirectoryHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
+        if (r.getMethod() != "POST"){
+            System.out.println("Method not allowed");
+            w.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            ExceptionReturn response = new ExceptionReturn("MethodNotAllowedException", "Method not allowed");
+            w.setContentType("application/json");
+            w.getWriter().write(gson.toJson(response));
+            return;
+        }
+
+        PathRequest pathReq = null;
+        try {
+            BufferedReader reader = r.getReader();
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            pathReq = gson.fromJson(requestBody, PathRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        this.fileSystem.printTree(1);
+
+        if(pathReq.path != null && pathReq.path != "" ){
+            pathReq.path = sanitizePath(pathReq.path);
+        }
+
+        String exceptionTypeString="";
+        boolean isDir = true;
+        if(pathReq.path ==""){
+            exceptionTypeString="IllegalArgumentException";
+        } else{
+            if(pathReq.path == "/"){
+                isDir = true;
+            } else{
+                TreeNode node = this.fileSystem.findNode(pathReq.path);
+                if(node == null){
+                    isDir = false;
+                    exceptionTypeString="FileNotFoundException";
+                } else{
+                    isDir = node.isDir();
+                }
+            }
+        }
+
+        if(exceptionTypeString != ""){
+            ExceptionReturn response = new ExceptionReturn(exceptionTypeString, "the file/directory or parent directory does not exist.");
+            w.setContentType("application/json");
+            w.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            w.getWriter().write(gson.toJson(response));
+            return;
+        }
+
+        BooleanReturn response = new BooleanReturn(isDir);
+        w.setContentType("application/json");
+        w.setStatus(HttpServletResponse.SC_OK);
+        w.getWriter().write(gson.toJson(response));
     }
 
 }
