@@ -1,9 +1,11 @@
 package common;
 
-public class FilesReturn {
-    public String[] files;
+import java.util.List;
 
-    public FilesReturn(String[] files) {
+public class FilesReturn {
+    public List<String> files;
+
+    public FilesReturn(List<String> files) {
         this.files = files;
     }
 }

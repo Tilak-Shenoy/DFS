@@ -16,8 +16,11 @@ import com.google.gson.Gson;
 import common.BooleanReturn;
 import common.ErrorRegistrationResponse;
 import common.ExceptionReturn;
+import common.FilesReturn;
+import common.LockRequest;
 import common.PathRequest;
 import common.RegisterRequest;
+import common.ServerInfo;
 import common.SuccessfulRegistrationResponse;
 import util.Util;
 
@@ -33,33 +36,6 @@ public class NameServer {
     public final ReentrantLock mu = new ReentrantLock();
 
     public NameServer(){}
-
-    private void createFile(String path) throws FileNotFoundException{
-        if(path== null || path == ""){
-            throw new IllegalArgumentException();
-        }
-
-        TreeNode node = this.fileSystem.findNode(path);
-        if(node == null){
-            throw new FileNotFoundException();
-        }
-        
-        String parent = getParentDir(path);
-
-        TreeNode parentNode = this.fileSystem.findNode(parent);
-        if(parentNode == null){
-            throw new FileNotFoundException();
-        }
-
-        if (!parentNode.isDir()){
-            throw new FileNotFoundException();
-        }
-
-        this.fileSystem.addFile(path, false, 0);
-        // Add the file to the storage server
-        Util.callStorageServer(String.format("http://127.0.0.1:%d/storage_create", this.registeredNodes.get(0)), path);
-    }
-
     private String getParentDir(String path){
         return path.substring(0, path.lastIndexOf('/'));
     }
@@ -153,10 +129,7 @@ public class NameServer {
     public void isDirectoryHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
         if (r.getMethod() != "POST"){
             System.out.println("Method not allowed");
-            w.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
-            ExceptionReturn response = new ExceptionReturn("MethodNotAllowedException", "Method not allowed");
-            w.setContentType("application/json");
-            w.getWriter().write(gson.toJson(response));
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
@@ -194,10 +167,7 @@ public class NameServer {
         }
 
         if(exceptionTypeString != ""){
-            ExceptionReturn response = new ExceptionReturn(exceptionTypeString, "the file/directory or parent directory does not exist.");
-            w.setContentType("application/json");
-            w.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            w.getWriter().write(gson.toJson(response));
+            exceptionHanler(w, exceptionTypeString, "the file/directory or parent directory does not exist.");
             return;
         }
 
@@ -206,5 +176,308 @@ public class NameServer {
         w.setStatus(HttpServletResponse.SC_OK);
         w.getWriter().write(gson.toJson(response));
     }
+
+    private List<String> findFiles(String path) throws ExceptionReturn{
+        TreeNode node = this.fileSystem.findNode(path);
+        if(node == null){
+            throw new ExceptionReturn("FileNotFoundException", "the file/directory or parent directory does not exist.");
+        }
+        if(!node.isDir){
+            throw new ExceptionReturn("IllegalArgumentException", "the file/directory or parent directory does not exist.");
+        }
+        return node.children.keySet().stream().collect(Collectors.toList());
+    }
+    
+
+    private void exceptionHanler(HttpServletResponse w, String exceptionTypeString, String exceptionInfo) throws IOException{
+        ExceptionReturn response = new ExceptionReturn(exceptionTypeString, exceptionInfo);
+        w.setContentType("application/json");
+        w.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        w.getWriter().write(gson.toJson(response));
+    }
+
+    // /list endpoint for lsiting directory contents
+    public void listHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
+        if (r.getMethod() != "POST") {
+            System.out.println("Method not allowed");
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+            return;
+        }
+
+        PathRequest pathReq = new PathRequest("");
+        try {
+            BufferedReader reader = r.getReader();
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            pathReq = gson.fromJson(requestBody, PathRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        List<String> files = new ArrayList<>();
+        String error = "";
+
+        if(pathReq.path != ""){
+            try {
+                files = this.findFiles(pathReq.path);
+            } catch (ExceptionReturn e) {
+                error = e.exception_type;
+            }
+        } else{
+            error = "IllegalArgumentException";
+        }
+
+
+        if(!error.isEmpty()){
+            exceptionHanler(w, error, "the file/directory or parent directory does not exist.");
+            return;
+        }
+
+        FilesReturn response = new FilesReturn(files);
+        w.setContentType("application/json");
+        w.setStatus(HttpServletResponse.SC_OK);
+        w.getWriter().write(gson.toJson(response));
+    }
+
+
+    private  void createDirectoryHelper(String path) throws FileNotFoundException{
+        if(path.isEmpty()){
+            throw new IllegalArgumentException();
+        }
+
+        TreeNode node = this.fileSystem.findNode(path);
+        if(node == null){
+            throw new FileNotFoundException();
+        }
+
+        if(!node.isDir){
+            throw new FileNotFoundException();
+        }
+
+        this.fileSystem.addFile(path, true, 0);
+    }
+
+    private void createFileHelper(String path) throws ExceptionReturn, FileNotFoundException{
+        if(path.isEmpty()){
+            throw new IllegalArgumentException();
+        }
+
+        TreeNode node = this.fileSystem.findNode(path);
+        if(node == null){
+            throw new FileNotFoundException();
+        }
+
+        String parent = getParentDir(path);
+        
+        TreeNode parentNode = this.fileSystem.findNode(parent);
+        if(parentNode == null){
+            throw new FileNotFoundException();
+        }
+
+        if(!parentNode.isDir){
+            throw new FileNotFoundException();
+        }
+
+        this.fileSystem.addFile(path, false, 0);
+        // TS: By default, the data is stored in the first storage server and replicated as the file gets read over the threshold?
+        Util.callStorageServer(String.format("http://127.0.0.1:%d/storage_create", this.registeredNodes.get(0)), path);
+
+    }
+
+    // /create_directory endpoint for creating a directory
+    public void createDirectoryHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
+        
+        PathRequest pathReq = null;
+        try {
+            BufferedReader reader = r.getReader();
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            pathReq = gson.fromJson(requestBody, PathRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+        try{
+            createDirectoryHelper(pathReq.path);
+        } catch (Exception e) {
+            exceptionHanler(w, e.getClass().toString(), e.getMessage());
+            return;
+        }
+    }
+
+    // /create_file endpoint for creating a new file
+    public void createFileHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
+        if (r.getMethod() != "POST") {
+            System.out.println("Method not allowed");
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+            return;
+        }
+
+        PathRequest pathReq = null;
+        try {
+            BufferedReader reader = r.getReader();
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            pathReq = gson.fromJson(requestBody, PathRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        if(this.registeredNodes.isEmpty()){
+            exceptionHanler(w, "IllegalStateException", "No storage servers  are registered with the naming server.");
+            return;
+        }
+
+        try{
+            createFileHelper(pathReq.path);
+        } catch (Exception e) {
+            exceptionHanler(w, e.getClass().toString(), e.getMessage());
+            return;
+        }
+
+        BooleanReturn response = new BooleanReturn(true);
+        w.setContentType("application/json");
+        w.setStatus(HttpServletResponse.SC_OK);
+        w.getWriter().write(gson.toJson(response));
+
+    }
+
+    public void getStorage(HttpServletResponse w, HttpServletRequest r) throws IOException{
+        PathRequest pathReq = null;
+        try {
+            BufferedReader reader = r.getReader();
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            pathReq = gson.fromJson(requestBody, PathRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new IllegalArgumentException();
+        }
+
+        String error = "";
+        TreeNode node = null;
+
+        if (pathReq.path.isEmpty()){
+            error="IllegalArgumentException";
+        } else{
+            pathReq.path = sanitizePath(pathReq.path);
+            node = this.fileSystem.findNode(pathReq.path);
+
+            if(node == null || node.isDir){
+                error = "FileNotFoundException";
+            }
+        }
+
+        if(error.isEmpty()){
+            exceptionHanler(w, error, error);
+            return;
+        }
+
+        ServerInfo serverInfo = new ServerInfo("127.0.0.1", node.sourcePorts.get(0));
+        w.setHeader("Content-Type","application/json");
+        w.setStatus(HttpServletResponse.SC_OK);
+        w.getWriter().write(gson.toJson(serverInfo));
+
+    }
+
+    // /lock endpoint for locking a file
+    public void lockHandler(HttpServletResponse w, HttpServletRequest r ) throws IOException{
+        if (r.getMethod() != "POST") {
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+            return;
+        }
+
+        LockRequest lockRequest = null;
+        try {
+            BufferedReader reader = r.getReader();
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            lockRequest = gson.fromJson(requestBody, LockRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new IllegalArgumentException();
+        }
+
+        if(lockRequest.path.isEmpty()){
+            exceptionHanler(w, "IllegalArgumentException", "IllegalArgumentException");
+            return;
+        }
+
+        lockRequest.path = sanitizePath(lockRequest.path);
+        
+        try{
+            this.fileSystem.lock(lockRequest.path, lockRequest.exclusive, this.registeredNodes, this.clientPorts, this.portMap);
+        } catch (ExceptionReturn e) {
+            exceptionHanler(w, e.exception_type, e.exception_info);
+        }
+    }
+
+    // /unlock endpoint for unlocking a file
+    public void unlockHandler(HttpServletResponse w, HttpServletRequest r ) throws IOException{
+        if (r.getMethod() != "POST") {
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+            return;
+        }
+
+        LockRequest lockRequest = null;
+        try {
+            BufferedReader reader = r.getReader();
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            lockRequest = gson.fromJson(requestBody, LockRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new IllegalArgumentException();
+        }
+
+        if(lockRequest.path.isEmpty()){
+            exceptionHanler(w, "IllegalArgumentException", "IllegalArgumentException");
+            return;
+        }
+
+        lockRequest.path = sanitizePath(lockRequest.path);
+        
+        try{
+            this.fileSystem.unlock(lockRequest.path, lockRequest.exclusive);
+        } catch (ExceptionReturn e) {
+            exceptionHanler(w, e.exception_type, e.exception_info);
+        }
+    }
+
+    public void deleteHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
+        if (r.getMethod() != "POST") {
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+            return;
+        }
+
+        LockRequest lockRequest = null;
+        try {
+            BufferedReader reader = r.getReader();
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            lockRequest = gson.fromJson(requestBody, LockRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new IllegalArgumentException();
+        }
+
+        if(lockRequest.path.isEmpty()){
+            exceptionHanler(w, "IllegalArgumentException", "IllegalArgumentException");
+            return;
+        }
+
+        lockRequest.path = sanitizePath(lockRequest.path);
+        
+        try{
+            this.fileSystem.deleteFile(lockRequest.path, this.portMap, this.registeredNodes);
+        } catch (ExceptionReturn e) {
+            exceptionHanler(w, e.exception_type, e.exception_info);
+        }
+
+        BooleanReturn response = new BooleanReturn(true);
+        w.setContentType("application/json");
+        w.setStatus(HttpServletResponse.SC_OK);
+        w.getWriter().write(gson.toJson(response));
+    }
+
+
+    public static void main(String[] args) {
+        //TODO: Finish this
+    }
+
 
 }

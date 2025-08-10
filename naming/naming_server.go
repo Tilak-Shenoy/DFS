@@ -304,6 +304,7 @@ func (n *TreeNode) DeleteFile(path string, portmap map[int]int, nodes []int) str
 	//fmt.Println("The source nodes are: ", node.Source)
 	log.Println(" #################################################### The source nodes are: ", node.Source, "The reg nodes: ", nodes)
 
+	//TS: should it be portMap[src]
 	for _, src := range nodes {
 		makeCallToStorageServer(fmt.Sprintf("http://127.0.0.1:%d/storage_delete", src), path)
 	}
@@ -1017,6 +1018,7 @@ func (ns *NameServer) getStorage(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(successResponse)
 }
 
+//TS: What's this and why is it empty?
 func (ns *NameServer) ValidPathHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	response := IsValidPathResponse{Success: false}

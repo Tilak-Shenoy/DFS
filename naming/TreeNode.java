@@ -1,5 +1,6 @@
 package naming;
 
+import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -161,11 +162,13 @@ public class TreeNode {
     }
 
 
-    public void unlock(TreeNode current, String path, Boolean exclusive){
-        TreeNode node = current.findNode(path);
+    public void unlock(String path, Boolean exclusive) throws ExceptionReturn{
+        TreeNode node = this.findNode(path);
         if(node == null){
-            throw new IllegalArgumentException();
+            throw new ExceptionReturn("IllegalArgumentException", "IllegalArgumentException");
         }
+
+        TreeNode current = this;
 
         if(path == "/"){
             if(exclusive){
@@ -227,6 +230,26 @@ public class TreeNode {
     }
     public void printTree(int level){
         throw new UnsupportedOperationException();
+    }
+
+    public void deleteFile(String path, Map<Integer, Integer> portMap, List<Integer> nodes) throws ExceptionReturn{
+        TreeNode node = this.findNode(path);
+        if(node == null){
+            throw new ExceptionReturn("FileNotFoundException", "The file/directory or parent directory does not exist.");
+        }
+
+        this.rwLock.writeLock().lock();
+        this.writeAccess = true;
+        
+        try{
+            //TS: should it be portMap[src]
+            for (int source: nodes){
+                Util.callStorageServer(String.format("http://127.0.0.1:%d/storage_delete", portMap.get(source)), path);
+            }
+        } finally {
+            this.writeAccess = false;
+            this.rwLock.writeLock().unlock();
+        }
     }
     
 }
