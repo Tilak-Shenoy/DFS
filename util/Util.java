@@ -1,4 +1,4 @@
-package src.main.java.util;
+package util;
 
 import java.io.IOException;
 import java.net.URI;
@@ -91,6 +91,15 @@ public class Util {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
+    }
+
+
+    public static String sanitizePath(String filePath) {
+        String cleanPath = filePath.trim();
+        if (cleanPath == ".") {
+            return "/";
+        }
+        return cleanPath;
     }
 
 

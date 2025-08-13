@@ -6,4 +6,5 @@ public class SuccessfulRegistrationResponse {
     public SuccessfulRegistrationResponse(String[] files){
         this.files = files;
     }
+    public SuccessfulRegistrationResponse(){}
 }

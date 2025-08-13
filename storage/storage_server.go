@@ -905,6 +905,8 @@ func makeCreateCallToStorageServer(url string, path string) bool {
 	return response.Success
 }
 
+
+//TS: Why is this similar to makeCreateCallToStorageServer?
 func makeDeleteCallToStorageServer(url string, path string) bool {
 	// Create an instance of the PathRequest struct with the path
 	log.Println("Making a delete call to storage server for copy", url)
@@ -1052,6 +1054,7 @@ func (ss *StorageServer) copyFile(remotePath string, source string, port int) (b
 		url = fmt.Sprintf("http://%s:%d/storage_delete", "localhost", ss.CommandPort)
 		success = makeDeleteCallToStorageServer(url, remotePath)
 
+		//TS: Why are we deleting and creating a file?
 		// issue a create to the server
 		url = fmt.Sprintf("http://%s:%d/storage_create", "localhost", ss.CommandPort)
 		success = makeCreateCallToStorageServer(url, remotePath)

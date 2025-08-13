@@ -118,14 +118,6 @@ public class NameServer {
         }
     }
 
-    private String sanitizePath(String filePath){
-        String cleanPath = filePath.trim();
-        if(cleanPath=="."){
-            return "/";
-        }
-        return cleanPath;
-    }
-
     public void isDirectoryHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
         if (r.getMethod() != "POST"){
             System.out.println("Method not allowed");
@@ -145,7 +137,7 @@ public class NameServer {
         this.fileSystem.printTree(1);
 
         if(pathReq.path != null && pathReq.path != "" ){
-            pathReq.path = sanitizePath(pathReq.path);
+            pathReq.path = Util.sanitizePath(pathReq.path);
         }
 
         String exceptionTypeString="";
@@ -357,7 +349,7 @@ public class NameServer {
         if (pathReq.path.isEmpty()){
             error="IllegalArgumentException";
         } else{
-            pathReq.path = sanitizePath(pathReq.path);
+            pathReq.path = Util.sanitizePath(pathReq.path);
             node = this.fileSystem.findNode(pathReq.path);
 
             if(node == null || node.isDir){
@@ -399,7 +391,7 @@ public class NameServer {
             return;
         }
 
-        lockRequest.path = sanitizePath(lockRequest.path);
+        lockRequest.path = Util.sanitizePath(lockRequest.path);
         
         try{
             this.fileSystem.lock(lockRequest.path, lockRequest.exclusive, this.registeredNodes, this.clientPorts, this.portMap);
@@ -430,7 +422,7 @@ public class NameServer {
             return;
         }
 
-        lockRequest.path = sanitizePath(lockRequest.path);
+        lockRequest.path = Util.sanitizePath(lockRequest.path);
         
         try{
             this.fileSystem.unlock(lockRequest.path, lockRequest.exclusive);
@@ -460,7 +452,7 @@ public class NameServer {
             return;
         }
 
-        lockRequest.path = sanitizePath(lockRequest.path);
+        lockRequest.path = Util.sanitizePath(lockRequest.path);
         
         try{
             this.fileSystem.deleteFile(lockRequest.path, this.portMap, this.registeredNodes);

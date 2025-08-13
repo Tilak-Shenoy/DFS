@@ -3,9 +3,9 @@ package common;
 public class ReadRequest {
     public String path;
     public long offset;
-    public int length;
+    public long length;
 
-    public ReadRequest(String path, long offset, int length) {
+    public ReadRequest(String path, long offset, long length) {
         this.path = path;
         this.offset = offset;
         this.length = length;
