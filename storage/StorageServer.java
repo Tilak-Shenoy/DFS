@@ -48,9 +48,8 @@ public class StorageServer {
         return path.substring(0, path.lastIndexOf('/'));
     }
 
-    public void createFile(String path){
+    public void createFile(String path) {
         String dirPath = getParentDir(path);
-        
 
         File dir = new File(dirPath);
         if (!dir.mkdirs()) {
@@ -69,7 +68,7 @@ public class StorageServer {
 
     public boolean createFileMain(String path) {
         String error = "";
-        
+
         if (path.isEmpty()) {
             System.out.println("empty arg error during create dir");
             error = "IllegalArgumentException";
@@ -102,9 +101,10 @@ public class StorageServer {
         return false;
     }
 
-    private void exceptionHanler(HttpServletResponse w, String exceptionType, String exceptionInfo, int status) throws IOException {
+    private void exceptionHanler(HttpServletResponse w, String exceptionType, String exceptionInfo, int status)
+            throws IOException {
         ExceptionReturn exceptionReturn = new ExceptionReturn(exceptionType, exceptionInfo);
-        w.setHeader("Content-Type","application/json");
+        w.setHeader("Content-Type", "application/json");
         w.setStatus(status);
         w.getWriter().write(gson.toJson(exceptionReturn));
     }
@@ -112,7 +112,8 @@ public class StorageServer {
     // /storage_create endpoint for creating a new file
     public void storageCreateHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
         if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed", HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
+                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             return;
         }
 
@@ -175,10 +176,12 @@ public class StorageServer {
 
         return false;
     }
+
     // /storage_delete endpoint for deleting a file
     public void storageDeleteHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
         if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed", HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
+                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             return;
         }
 
@@ -195,7 +198,7 @@ public class StorageServer {
 
         if (!pathRequest.path.isEmpty()) {
             pathRequest.path = Util.sanitizePath(pathRequest.path);
-            System.out.println("Santitized to dir"+ pathRequest.path);
+            System.out.println("Santitized to dir" + pathRequest.path);
         }
 
         boolean success = deleteFileMain(pathRequest.path);
@@ -210,9 +213,10 @@ public class StorageServer {
         w.getWriter().write(gson.toJson(response));
     }
 
-    // listFilesRelativePaths takes a directory path and returns a slice of relative file paths
+    // listFilesRelativePaths takes a directory path and returns a slice of relative
+    // file paths
     private List<String> listFilesRelativePaths(String rootDir) {
-        List<String> files= new ArrayList<>();
+        List<String> files = new ArrayList<>();
 
         try {
             File dir = new File(rootDir);
@@ -227,16 +231,17 @@ public class StorageServer {
                 String relativePath = file.getPath().replace(rootDir, "");
                 files.add("/" + relativePath);
             }
-            
+
         } catch (Exception e) {
             e.printStackTrace();
         }
 
-        System.out.println("Files in dir " + files);        
+        System.out.println("Files in dir " + files);
         return files;
     }
 
-    // deleteFiles takes a directory path and a slice of relative file paths to delete
+    // deleteFiles takes a directory path and a slice of relative file paths to
+    // delete
     private boolean deleteFiles(String rootDir, List<String> files) {
         for (String file : files) {
             File fileToDelete = new File(rootDir + file);
@@ -248,9 +253,9 @@ public class StorageServer {
         return true;
     }
 
-    //TS: Confirm the logic here
     private void deleteEmptyDirFiles(String rootDir) {
-        // Delete files from directories that are empty or become empty after file deletion.
+        // Delete files from directories that are empty or become empty after file
+        // deletion.
         File rootDirFile = new File(rootDir);
         File[] filesInDir = rootDirFile.listFiles();
         if (filesInDir == null) {
@@ -266,11 +271,12 @@ public class StorageServer {
                 }
             }
         }
-    }   
+    }
 
     public SuccessfulRegistrationResponse makeCallToNamingServer() {
         String url = String.format("http://127.0.0.1:%d/register", this.naminServerPort);
-        RegisterRequest body = new RegisterRequest("127.0.0.1", this.clientPort, this.commandPort, this.files.toArray(new String[this.files.size()]));
+        RegisterRequest body = new RegisterRequest("127.0.0.1", this.clientPort, this.commandPort,
+                this.files.toArray(new String[this.files.size()]));
 
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder()
@@ -299,41 +305,42 @@ public class StorageServer {
     }
 
     public void registerStorageServer() {
-        System.out.println("Registering with storage server, state"+ this);
+        System.out.println("Registering with storage server, state" + this);
         SuccessfulRegistrationResponse response = makeCallToNamingServer();
         if (response != null) {
-            System.out.println("Successfully registered, deleting files "+ response.files);
+            System.out.println("Successfully registered, deleting files " + response.files);
             // do pruning of the listed files
             deleteFiles(this.rootPath, List.of(response.files));
             deleteEmptyDirFiles(this.rootPath);
             this.files = listFilesRelativePaths(this.rootPath);
 
-            System.out.println("New state of storage server, state"+ this);
+            System.out.println("New state of storage server, state" + this);
         }
     }
 
-    private long findSize(String path){
+    private long findSize(String path) {
         path = Util.sanitizePath(path);
 
-        if(path.isEmpty()){
+        if (path.isEmpty()) {
             return 0;
         }
 
-        if("/".equals(path)){
+        if ("/".equals(path)) {
             return 0;
         }
 
         File file = new File(path);
-        if(file.isDirectory()){
-            System.out.println(path+" is a directory");
+        if (file.isDirectory()) {
+            System.out.println(path + " is a directory");
             return -1;
         }
         return file.length();
     }
-    
+
     public void storageSizeHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
         if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed", HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
+                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             return;
         }
 
@@ -350,7 +357,7 @@ public class StorageServer {
 
         if (!pathRequest.path.isEmpty()) {
             pathRequest.path = Util.sanitizePath(pathRequest.path);
-            System.out.println("Santitized to dir"+ pathRequest.path);
+            System.out.println("Santitized to dir" + pathRequest.path);
         }
 
         long size = findSize(String.format("%s/%s", this.rootPath, pathRequest.path));
@@ -365,17 +372,17 @@ public class StorageServer {
         w.getWriter().write(gson.toJson(response));
     }
 
-    public void fileWrite(String path, long offset, String data) throws IOException{
+    public void fileWrite(String path, long offset, String data) throws IOException {
         path = Util.sanitizePath(path);
-        if(path.equals(this.rootPath)){
+        if (path.equals(this.rootPath)) {
             throw new IllegalArgumentException("Root path is not allowed");
         }
-        if(offset < 0){
+        if (offset < 0) {
             throw new IndexOutOfBoundsException("Offset cannot be < 0");
         }
 
         File file = new File(path);
-        if(file.isDirectory()){
+        if (file.isDirectory()) {
             throw new IllegalArgumentException("Path is a directory");
         }
         try (FileOutputStream fileOutputStream = new FileOutputStream(path, true)) {
@@ -392,7 +399,8 @@ public class StorageServer {
 
     public void storageWriteHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
         if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed", HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
+                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             return;
         }
 
@@ -409,7 +417,7 @@ public class StorageServer {
 
         if (!request.path.isEmpty()) {
             request.path = Util.sanitizePath(request.path);
-            System.out.println("Santitized to dir"+ request.path);
+            System.out.println("Santitized to dir" + request.path);
         }
         try {
             fileWrite(String.format("%s/%s", this.rootPath, request.path), request.offset, request.data);
@@ -425,20 +433,20 @@ public class StorageServer {
         w.getWriter().write(gson.toJson(response));
     }
 
-    private String fileRead(String path, long offset, long length) throws IOException{
+    private String fileRead(String path, long offset, long length) throws IOException {
         path = Util.sanitizePath(path);
-        if(path.equals(this.rootPath)){
+        if (path.equals(this.rootPath)) {
             throw new IllegalArgumentException("Root path is not allowed");
         }
-        if(offset < 0){
+        if (offset < 0) {
             throw new IndexOutOfBoundsException("Offset cannot be < 0");
         }
-        if(length < 0){
+        if (length < 0) {
             throw new IndexOutOfBoundsException("Length cannot be < 0");
         }
 
         File file = new File(path);
-        if(file.isDirectory()){
+        if (file.isDirectory()) {
             throw new IllegalArgumentException("Path is a directory");
         }
         try (FileInputStream fileInputStream = new FileInputStream(path)) {
@@ -454,10 +462,10 @@ public class StorageServer {
         }
     }
 
-
     public void storageReadHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
         if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed", HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
+                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             return;
         }
 
@@ -474,7 +482,7 @@ public class StorageServer {
 
         if (!request.path.isEmpty()) {
             request.path = Util.sanitizePath(request.path);
-            System.out.println("Santitized to dir"+ request.path);
+            System.out.println("Santitized to dir" + request.path);
         }
         try {
             String data = fileRead(String.format("%s/%s", this.rootPath, request.path), request.offset, request.length);
@@ -489,9 +497,9 @@ public class StorageServer {
         }
     }
 
-    private SizeReturn sizeCallToStorageServer(String url, String path){
+    private SizeReturn sizeCallToStorageServer(String url, String path) {
         PathRequest pathRequest = new PathRequest(path);
-        System.out.println("Making a size call to storage server for copy"+ url);
+        System.out.println("Making a size call to storage server for copy" + url);
 
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder()
@@ -516,18 +524,18 @@ public class StorageServer {
             Thread.currentThread().interrupt();
             return new SizeReturn(0);
         }
-        
+
     }
 
-    private DataReturn readCallToStorageServer(String url, String path, long offset, long length){
+    private DataReturn readCallToStorageServer(String url, String path, long offset, long length) {
         ReadRequest readRequest = new ReadRequest(path, offset, length);
 
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(readRequest)))
-                        .build();
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(readRequest)))
+                .build();
 
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -547,16 +555,16 @@ public class StorageServer {
         }
     }
 
-    //Same method as delete call, create call and write call
-    private BooleanReturn createCallToStorageServer(String url, String path){
+    // Same method as delete call, create call and write call
+    private BooleanReturn createCallToStorageServer(String url, String path) {
         PathRequest pathRequest = new PathRequest(path);
 
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(pathRequest)))
-                        .build();
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(pathRequest)))
+                .build();
 
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -576,30 +584,30 @@ public class StorageServer {
         }
     }
 
-    public boolean copyFile(String remotePath, String source, int port){
-        if(remotePath.isEmpty()){
+    public boolean copyFile(String remotePath, String source, int port) {
+        if (remotePath.isEmpty()) {
             throw new IllegalArgumentException("Remote path is empty");
         }
-      
+
         String sizeUrl = String.format("http://%s:%d/storage_size", source, port);
-      
+
         SizeReturn sizeReturn = sizeCallToStorageServer(sizeUrl, remotePath);
-        if(sizeReturn.size == 0){
+        if (sizeReturn.size == 0) {
             throw new IllegalArgumentException("Remote path does not exist");
         }
 
         String readUrl = String.format("http://%s:%d/storage_read", source, port);
         DataReturn dataReturn = readCallToStorageServer(readUrl, remotePath, 0L, sizeReturn.size);
-        if(dataReturn.data.isEmpty()){
+        if (dataReturn.data.isEmpty()) {
             throw new IllegalArgumentException("Remote path does not exist");
         }
 
         sizeUrl = String.format("http://%s:%d/storage_size", "localhost", this.commandPort);
         sizeReturn = sizeCallToStorageServer(sizeUrl, remotePath);
-        if(sizeReturn.size == 0){
+        if (sizeReturn.size == 0) {
             String createUrl = String.format("http://%s:%d/storage_create", "localhost", this.commandPort);
             createCallToStorageServer(createUrl, remotePath);
-        } else{
+        } else {
             String deleteUrl = String.format("http://%s:%d/storage_delete", "localhost", this.commandPort);
             createCallToStorageServer(deleteUrl, remotePath);
 
@@ -609,15 +617,16 @@ public class StorageServer {
 
         String writeUrl = String.format("http://%s:%d/storage_write", "localhost", this.commandPort);
         BooleanReturn writeReturn = createCallToStorageServer(writeUrl, remotePath);
-        if(!writeReturn.success){
+        if (!writeReturn.success) {
             throw new IllegalArgumentException("Remote path does not exist");
         }
-        return true;  
+        return true;
     }
 
     public void storageCopyHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
         if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed", HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
+                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             return;
         }
 
@@ -634,7 +643,7 @@ public class StorageServer {
 
         if (!copyFileRequest.path.isEmpty()) {
             copyFileRequest.path = Util.sanitizePath(copyFileRequest.path);
-            System.out.println("Santitized to dir"+ copyFileRequest.path);
+            System.out.println("Santitized to dir" + copyFileRequest.path);
         }
 
         boolean success = copyFile(copyFileRequest.path, copyFileRequest.server_ip, copyFileRequest.server_port);
@@ -649,12 +658,53 @@ public class StorageServer {
         w.getWriter().write(gson.toJson(response));
     }
 
-
     public static void main(String[] args) {
-        
-    }
-    
+        // Handle shutdown hook for cleanup
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("\nShutting down storage server...");
+        }));
 
- 
-    
+        if (args.length != 4) {
+            System.err.println("Usage: java StorageServer <clientPort> <commandPort> <registrationPort> <storagePath>");
+            System.exit(1);
+        }
+
+        try {
+            int clientPort = Integer.parseInt(args[0]);
+            int commandPort = Integer.parseInt(args[1]);
+            int registrationPort = Integer.parseInt(args[2]);
+            String storagePath = args[3];
+
+            // Create and initialize the storage server
+            StorageServer server = new StorageServer();
+            server.clientPort = clientPort;
+            server.commandPort = commandPort;
+            server.naminServerPort = registrationPort;
+            server.rootPath = storagePath;
+
+            // List files in the storage directory
+            server.files = server.listFilesRelativePaths(storagePath);
+
+            // Register with the naming server
+            server.registerStorageServer();
+
+            // TODO: Start HTTP server for client and command ports
+            System.out.println("Storage server started successfully");
+            System.out.println("Client Port: " + clientPort);
+            System.out.println("Command Port: " + commandPort);
+            System.out.println("Registration Port: " + registrationPort);
+            System.out.println("Storage Path: " + storagePath);
+
+            // Keep the main thread alive
+            Thread.currentThread().join();
+
+        } catch (NumberFormatException e) {
+            System.err.println("Error: Port numbers must be valid integers");
+            System.exit(1);
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
 }

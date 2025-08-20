@@ -1,6 +1,5 @@
 package naming;
 
-import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
@@ -133,13 +132,10 @@ public class TreeNode {
                 //if request is exclusive and no other process has access
                 if(request.isExclusive() && current.readCount.get() == 0 && !current.writeAccess) {
                     current.rwLock.writeLock().lock();
-                    try {
-                        current.writeAccess = true;
-                        request.done.complete(true);
-                    } finally {
-                        //TS: Remove this?
-                        current.rwLock.writeLock().unlock();
-                    }
+                   
+                    current.writeAccess = true;
+                    request.done.complete(true);
+                    
                 }
                 //if request is shared and no other process has exclusive access
                 else if(!request.isExclusive() && !current.writeAccess) {
@@ -242,9 +238,8 @@ public class TreeNode {
         this.writeAccess = true;
         
         try{
-            //TS: should it be portMap[src]
             for (int source: nodes){
-                Util.callStorageServer(String.format("http://127.0.0.1:%d/storage_delete", portMap.get(source)), path);
+                Util.callStorageServer(String.format("http://127.0.0.1:%d/storage_delete", source), path);
             }
         } finally {
             this.writeAccess = false;
