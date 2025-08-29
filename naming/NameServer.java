@@ -3,15 +3,21 @@ package naming;
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpServletRequest;
 
 import com.google.gson.Gson;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
 
 import common.BooleanReturn;
 import common.ErrorRegistrationResponse;
@@ -52,15 +58,22 @@ public class NameServer {
         return false;
     }
 
-    public void registrationHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
+    public void registrationHandler(HttpExchange exchange) throws IOException{
         RegisterRequest data = new RegisterRequest();
-        try {
-            BufferedReader reader = r.getReader();
+        if (exchange.getRequestMethod() != "POST") {
+            System.out.println("Method not allowed");
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
+            return;
+        }
+
+         try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             data = gson.fromJson(requestBody, RegisterRequest.class);
         } catch (Exception e) {
             e.printStackTrace();
+            throw new IllegalArgumentException();
         }
+
         
         int node = data.command_port;
         int clientPort = data.client_port;
@@ -93,14 +106,10 @@ public class NameServer {
             this.fileSystem.printTree(1);
 
             SuccessfulRegistrationResponse response = new SuccessfulRegistrationResponse(deleted.toArray(new String[deleted.size()]));
-            w.setContentType("application/json");
-            w.setStatus(HttpServletResponse.SC_OK);
-            w.getWriter().write(gson.toJson(response));
+            sendJsonResponse(exchange, 200, response);
         } else{
             ErrorRegistrationResponse response = new ErrorRegistrationResponse("IllegalStateException", "This storage server is already registered.");
-            w.setContentType("application/json");
-            w.setStatus(HttpServletResponse.SC_CONFLICT);
-            w.getWriter().write(gson.toJson(response));
+            sendJsonResponse(exchange, 500, response);
         }
     }
 
@@ -118,55 +127,56 @@ public class NameServer {
         }
     }
 
-    public void isDirectoryHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
-        if (r.getMethod() != "POST"){
+    public void isDirectoryHandler(HttpExchange exchange) throws IOException{
+        if (exchange.getRequestMethod() != "POST"){
             System.out.println("Method not allowed");
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
-
-        PathRequest pathReq = null;
-        try {
-            BufferedReader reader = r.getReader();
-            String requestBody = reader.lines().collect(Collectors.joining("\n"));
-            pathReq = gson.fromJson(requestBody, PathRequest.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        this.fileSystem.printTree(1);
-
-        if(pathReq.path != null && pathReq.path != "" ){
-            pathReq.path = Util.sanitizePath(pathReq.path);
-        }
-
-        String exceptionTypeString="";
         boolean isDir = true;
-        if(pathReq.path ==""){
-            exceptionTypeString="IllegalArgumentException";
-        } else{
-            if(pathReq.path == "/"){
-                isDir = true;
-            } else{
-                TreeNode node = this.fileSystem.findNode(pathReq.path);
-                if(node == null){
-                    isDir = false;
-                    exceptionTypeString="FileNotFoundException";
-                } else{
-                    isDir = node.isDir();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            PathRequest pathReq = gson.fromJson(requestBody, PathRequest.class);
+
+            
+            // Validate path
+            if (pathReq.path == null || pathReq.path.isEmpty()) {
+                sendErrorResponse(exchange, "IllegalArgumentException", "Path cannot be empty");
+                return;
+            }
+
+            // Process the request
+            pathReq.path = Util.sanitizePath(pathReq.path);
+
+           
+            if (pathReq.path == "") {
+                sendErrorResponse(exchange,"IllegalArgumentException", 
+                        "An error occurred while processing the request");
+                return;
+            } else {
+                if (pathReq.path == "/") {
+                    isDir = true;
+                } else {
+                    TreeNode node = this.fileSystem.findNode(pathReq.path);
+                    if (node == null) {
+                        isDir = false;
+                        sendErrorResponse(exchange,"FileNotFoundException", 
+                                "An error occurred while processing the request");
+                        return;
+                    } else {
+                        isDir = node.isDir();
+                    }
                 }
             }
-        }
-
-        if(exceptionTypeString != ""){
-            exceptionHanler(w, exceptionTypeString, "the file/directory or parent directory does not exist.");
-            return;
+        } catch (Exception e) {
+            // Handle unexpected exceptions
+            e.printStackTrace();
+            sendErrorResponse(exchange, "InternalServerError", "An error occurred while processing the request");
         }
 
         BooleanReturn response = new BooleanReturn(isDir);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
+        sendJsonResponse(exchange, 200, response);
     }
 
     private List<String> findFiles(String path) throws ExceptionReturn{
@@ -179,55 +189,40 @@ public class NameServer {
         }
         return node.children.keySet().stream().collect(Collectors.toList());
     }
-    
-
-    private void exceptionHanler(HttpServletResponse w, String exceptionTypeString, String exceptionInfo) throws IOException{
-        ExceptionReturn response = new ExceptionReturn(exceptionTypeString, exceptionInfo);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_NOT_FOUND);
-        w.getWriter().write(gson.toJson(response));
-    }
 
     // /list endpoint for lsiting directory contents
-    public void listHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
-        if (r.getMethod() != "POST") {
-            System.out.println("Method not allowed");
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+    public void listHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
-        PathRequest pathReq = new PathRequest("");
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
-            pathReq = gson.fromJson(requestBody, PathRequest.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        List<String> files = new ArrayList<>();
-        String error = "";
-
-        if(pathReq.path != ""){
-            try {
-                files = this.findFiles(pathReq.path);
-            } catch (ExceptionReturn e) {
-                error = e.exception_type;
+            PathRequest pathReq = gson.fromJson(requestBody, PathRequest.class);
+            
+            // Validate path
+            if (pathReq.path == null || pathReq.path.isEmpty()) {
+                sendErrorResponse(exchange, "IllegalArgumentException", "Path cannot be empty");
+                return;
             }
-        } else{
-            error = "IllegalArgumentException";
+            
+            // Process the request
+            pathReq.path = Util.sanitizePath(pathReq.path);
+            List<String> files = findFiles(pathReq.path);
+            
+            // Create and send response
+            FilesReturn response = new FilesReturn(files);
+            sendJsonResponse(exchange, 200, response);
+            
+        } catch (ExceptionReturn e) {
+            // Handle known exceptions from findFiles
+            sendErrorResponse(exchange, e.exception_type, e.exception_info);
+        } catch (Exception e) {
+            // Handle unexpected exceptions
+            e.printStackTrace();
+            sendErrorResponse(exchange, "InternalServerError", "An error occurred while processing the request");
         }
-
-
-        if(!error.isEmpty()){
-            exceptionHanler(w, error, "the file/directory or parent directory does not exist.");
-            return;
-        }
-
-        FilesReturn response = new FilesReturn(files);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
     }
 
 
@@ -276,11 +271,10 @@ public class NameServer {
     }
 
     // /create_directory endpoint for creating a directory
-    public void createDirectoryHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
+    public void createDirectoryHandler(HttpExchange exchange) throws IOException{
         
         PathRequest pathReq = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             pathReq = gson.fromJson(requestBody, PathRequest.class);
         } catch (Exception e) {
@@ -291,22 +285,20 @@ public class NameServer {
         try{
             createDirectoryHelper(pathReq.path);
         } catch (Exception e) {
-            exceptionHanler(w, e.getClass().toString(), e.getMessage());
+            sendErrorResponse(exchange, e.getClass().getSimpleName(), e.getMessage());
             return;
         }
     }
 
     // /create_file endpoint for creating a new file
-    public void createFileHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
-        if (r.getMethod() != "POST") {
-            System.out.println("Method not allowed");
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+    public void createFileHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
         PathRequest pathReq = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             pathReq = gson.fromJson(requestBody, PathRequest.class);
         } catch (Exception e) {
@@ -314,28 +306,25 @@ public class NameServer {
         }
 
         if(this.registeredNodes.isEmpty()){
-            exceptionHanler(w, "IllegalStateException", "No storage servers  are registered with the naming server.");
+            sendErrorResponse(exchange, "IllegalStateException", "No storage servers are registered with the naming server.");
             return;
         }
 
         try{
             createFileHelper(pathReq.path);
         } catch (Exception e) {
-            exceptionHanler(w, e.getClass().toString(), e.getMessage());
+            sendErrorResponse(exchange, e.getClass().getSimpleName(), e.getMessage());
             return;
         }
 
         BooleanReturn response = new BooleanReturn(true);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
+        sendJsonResponse(exchange, 200, response);
 
     }
 
-    public void getStorage(HttpServletResponse w, HttpServletRequest r) throws IOException{
+    public void getStorage(HttpExchange exchange) throws IOException{
         PathRequest pathReq = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             pathReq = gson.fromJson(requestBody, PathRequest.class);
         } catch (Exception e) {
@@ -358,27 +347,24 @@ public class NameServer {
         }
 
         if(error.isEmpty()){
-            exceptionHanler(w, error, error);
+            sendErrorResponse(exchange, error, error);
             return;
         }
 
         ServerInfo serverInfo = new ServerInfo("127.0.0.1", node.sourcePorts.get(0));
-        w.setHeader("Content-Type","application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(serverInfo));
+        sendJsonResponse(exchange, 200, serverInfo);
 
     }
 
     // /lock endpoint for locking a file
-    public void lockHandler(HttpServletResponse w, HttpServletRequest r ) throws IOException{
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+    public void lockHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
         LockRequest lockRequest = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             lockRequest = gson.fromJson(requestBody, LockRequest.class);
         } catch (Exception e) {
@@ -387,7 +373,7 @@ public class NameServer {
         }
 
         if(lockRequest.path.isEmpty()){
-            exceptionHanler(w, "IllegalArgumentException", "IllegalArgumentException");
+            sendErrorResponse(exchange, "IllegalArgumentException", "Path cannot be empty");
             return;
         }
 
@@ -396,79 +382,162 @@ public class NameServer {
         try{
             this.fileSystem.lock(lockRequest.path, lockRequest.exclusive, this.registeredNodes, this.clientPorts, this.portMap);
         } catch (ExceptionReturn e) {
-            exceptionHanler(w, e.exception_type, e.exception_info);
+            sendErrorResponse(exchange, e.exception_type, e.exception_info);
         }
     }
 
     // /unlock endpoint for unlocking a file
-    public void unlockHandler(HttpServletResponse w, HttpServletRequest r ) throws IOException{
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
+    public void unlockHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
-        LockRequest lockRequest = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
-            lockRequest = gson.fromJson(requestBody, LockRequest.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new IllegalArgumentException();
-        }
+            LockRequest lockRequest = gson.fromJson(requestBody, LockRequest.class);
 
-        if(lockRequest.path.isEmpty()){
-            exceptionHanler(w, "IllegalArgumentException", "IllegalArgumentException");
-            return;
-        }
+            if (lockRequest.path == null || lockRequest.path.isEmpty()) {
+                sendErrorResponse(exchange, "IllegalArgumentException", "Path cannot be empty");
+                return;
+            }
 
-        lockRequest.path = Util.sanitizePath(lockRequest.path);
-        
-        try{
+            lockRequest.path = Util.sanitizePath(lockRequest.path);
             this.fileSystem.unlock(lockRequest.path, lockRequest.exclusive);
+            
+            // Send success response
+            sendJsonResponse(exchange, 200, new BooleanReturn(true));
+            
         } catch (ExceptionReturn e) {
-            exceptionHanler(w, e.exception_type, e.exception_info);
-        }
-    }
-
-    public void deleteHandler(HttpServletResponse w, HttpServletRequest r) throws IOException{
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed");
-            return;
-        }
-
-        LockRequest lockRequest = null;
-        try {
-            BufferedReader reader = r.getReader();
-            String requestBody = reader.lines().collect(Collectors.joining("\n"));
-            lockRequest = gson.fromJson(requestBody, LockRequest.class);
+            sendErrorResponse(exchange, e.exception_type, e.exception_info);
         } catch (Exception e) {
             e.printStackTrace();
-            throw new IllegalArgumentException();
+            sendErrorResponse(exchange, "InternalServerError", "An error occurred while processing the request");
         }
+    }
 
-        if(lockRequest.path.isEmpty()){
-            exceptionHanler(w, "IllegalArgumentException", "IllegalArgumentException");
+    public void deleteHandler(HttpExchange exchange) throws IOException{
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
-        lockRequest.path = Util.sanitizePath(lockRequest.path);
-        
-        try{
-            this.fileSystem.deleteFile(lockRequest.path, this.portMap, this.registeredNodes);
-        } catch (ExceptionReturn e) {
-            exceptionHanler(w, e.exception_type, e.exception_info);
-        }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            LockRequest lockRequest = gson.fromJson(requestBody, LockRequest.class);
 
-        BooleanReturn response = new BooleanReturn(true);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
+            if (lockRequest.path == null || lockRequest.path.isEmpty()) {
+                sendErrorResponse(exchange, "IllegalArgumentException", "Path cannot be empty");
+                return;
+            }
+
+            lockRequest.path = Util.sanitizePath(lockRequest.path);
+            this.fileSystem.deleteFile(lockRequest.path, this.portMap, this.registeredNodes);
+
+            // Send success response
+            sendJsonResponse(exchange, 200, new BooleanReturn(true));
+
+        } catch (ExceptionReturn e) {
+            sendErrorResponse(exchange, e.exception_type, e.exception_info);
+        } catch (Exception e) {
+            e.printStackTrace();
+            sendErrorResponse(exchange, "InternalServerError", "An error occurred while processing the request");
+        }
+    }
+    
+    // Helper method to send JSON responses
+    private void sendJsonResponse(HttpExchange exchange, int statusCode, Object response) throws IOException {
+        String responseBody = gson.toJson(response);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(statusCode, responseBody.getBytes().length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(responseBody.getBytes());
+        }
     }
 
+    // Helper method to send error responses
+    private void sendErrorResponse(HttpExchange exchange, String errorType, String errorMessage) throws IOException {
+        ExceptionReturn errorResponse = new ExceptionReturn(errorType, errorMessage);
+        byte[] responseBytes = gson.toJson(errorResponse).getBytes();
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(400, responseBytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(responseBytes);
+        }
+    }
 
-    public static void main(String[] args) {
-        //TODO: Finish this
+    public static void main(String[] args) throws IOException {
+        if (args.length != 1) {
+            throw new IllegalArgumentException("expected one argument: port");
+        }
+
+        int port = Integer.parseInt(args[0]);
+        NameServer nameServer = new NameServer();
+        
+        // Initialize the file system
+        nameServer.fileSystem = new TreeNode("", true, -1);
+        nameServer.registeredNodes = new ArrayList<>();
+        nameServer.clientPorts = new ArrayList<>();
+        nameServer.portMap = new HashMap<>();
+        
+        // Create HTTP server
+        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+        
+        // Set up context handlers
+        server.createContext("/is_directory", new HttpHandler(){
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                nameServer.isDirectoryHandler(exchange);
+            }
+        });
+
+        server.createContext("/register", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                nameServer.registrationHandler(exchange);
+            }
+        });
+        
+        // Set up other endpoints
+        server.createContext("/lock", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                nameServer.lockHandler(exchange);
+            }
+        });
+        
+        server.createContext("/unlock", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                nameServer.unlockHandler(exchange);
+            }
+        });
+        
+        server.createContext("/create_file", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                nameServer.createFileHandler(exchange);
+            }
+        });
+        
+        server.createContext("/create_directory", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                nameServer.createDirectoryHandler(exchange);
+            }
+        });
+        
+        server.createContext("/delete", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                nameServer.deleteHandler(exchange);
+            }
+        });
+        
+        // Start the server
+        server.setExecutor(Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors()));
+        server.start();
+        System.out.println("NameServer started on port " + port);
     }
 
 

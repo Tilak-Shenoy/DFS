@@ -5,11 +5,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
-import org.w3c.dom.html.HTMLAppletElement;
-
 import com.google.gson.Gson;
 
 import common.BooleanReturn;
@@ -33,6 +28,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpExchange;
+import java.net.InetSocketAddress;
+import java.io.OutputStream;
+import java.io.InputStreamReader;
+import java.util.concurrent.Executors;
 
 public class StorageServer {
 
@@ -46,6 +47,18 @@ public class StorageServer {
 
     private String getParentDir(String path) {
         return path.substring(0, path.lastIndexOf('/'));
+    }
+
+    public void clientHandler(HttpExchange exchange) {
+        System.out.println("client handler called");
+    }
+
+    public void commandHandler(HttpExchange exchange) {
+        System.out.println("command handler called");
+    }
+
+    public void registrationHandler(HttpExchange exchange) {
+        System.out.println("registration handler called");
     }
 
     public void createFile(String path) {
@@ -101,30 +114,20 @@ public class StorageServer {
         return false;
     }
 
-    private void exceptionHanler(HttpServletResponse w, String exceptionType, String exceptionInfo, int status)
-            throws IOException {
-        ExceptionReturn exceptionReturn = new ExceptionReturn(exceptionType, exceptionInfo);
-        w.setHeader("Content-Type", "application/json");
-        w.setStatus(status);
-        w.getWriter().write(gson.toJson(exceptionReturn));
-    }
-
     // /storage_create endpoint for creating a new file
-    public void storageCreateHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
-                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+    public void storageCreateHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
         PathRequest pathRequest = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             pathRequest = gson.fromJson(requestBody, PathRequest.class);
         } catch (Exception e) {
             e.printStackTrace();
-            exceptionHanler(w, "BadRequestException", "Bad Request", HttpServletResponse.SC_BAD_REQUEST);
+            sendErrorResponse(exchange, "BadRequestException", "Bad Request");
             return;
         }
 
@@ -134,15 +137,11 @@ public class StorageServer {
 
         boolean success = createFileMain(pathRequest.path);
         if (!success) {
-            exceptionHanler(w, "IOException", "IO Exception", HttpServletResponse.SC_NOT_FOUND);
+            sendErrorResponse(exchange, "IOException", "IO Exception");
             return;
         }
 
-        BooleanReturn response = new BooleanReturn(success);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
-
+        sendJsonResponse(exchange, 200, new BooleanReturn(success));
     }
 
     private boolean deleteFileMain(String path) {
@@ -178,39 +177,34 @@ public class StorageServer {
     }
 
     // /storage_delete endpoint for deleting a file
-    public void storageDeleteHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
-                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+    public void storageDeleteHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
         PathRequest pathRequest = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             pathRequest = gson.fromJson(requestBody, PathRequest.class);
         } catch (Exception e) {
             e.printStackTrace();
-            exceptionHanler(w, "BadRequestException", "Bad Request", HttpServletResponse.SC_BAD_REQUEST);
+            sendErrorResponse(exchange, "BadRequestException", "Bad Request");
             return;
         }
 
         if (!pathRequest.path.isEmpty()) {
             pathRequest.path = Util.sanitizePath(pathRequest.path);
-            System.out.println("Santitized to dir" + pathRequest.path);
+            System.out.println("Sanitized to dir" + pathRequest.path);
         }
 
         boolean success = deleteFileMain(pathRequest.path);
         if (!success) {
-            exceptionHanler(w, "IllegalArgumentException", "Illegal argument", HttpServletResponse.SC_NOT_FOUND);
+            sendErrorResponse(exchange, "IllegalArgumentException", "Illegal argument");
             return;
         }
 
-        BooleanReturn response = new BooleanReturn(success);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
+        sendJsonResponse(exchange, 200, new BooleanReturn(success));
     }
 
     // listFilesRelativePaths takes a directory path and returns a slice of relative
@@ -337,22 +331,40 @@ public class StorageServer {
         return file.length();
     }
 
-    public void storageSizeHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
-                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+    // Helper method to send error responses
+    private void sendErrorResponse(HttpExchange exchange, String errorType, String errorMessage) throws IOException {
+        ExceptionReturn errorResponse = new ExceptionReturn(errorType, errorMessage);
+        
+        byte[] responseBytes = gson.toJson(errorResponse).getBytes();
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(400, responseBytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(responseBytes);
+        }
+    }
+
+    // Helper method to send JSON responses
+    private void sendJsonResponse(HttpExchange exchange, int statusCode, Object response) throws IOException {
+        String responseBody = gson.toJson(response);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(statusCode, responseBody.getBytes().length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(responseBody.getBytes());
+        }
+    }
+
+    public void storageSizeHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
         PathRequest pathRequest = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             pathRequest = gson.fromJson(requestBody, PathRequest.class);
         } catch (Exception e) {
             e.printStackTrace();
-            exceptionHanler(w, "BadRequestException", "Bad Request", HttpServletResponse.SC_BAD_REQUEST);
-            return;
         }
 
         if (!pathRequest.path.isEmpty()) {
@@ -362,14 +374,12 @@ public class StorageServer {
 
         long size = findSize(String.format("%s/%s", this.rootPath, pathRequest.path));
         if (size == -1) {
-            exceptionHanler(w, "IllegalArgumentException", "Illegal argument", HttpServletResponse.SC_NOT_FOUND);
+            sendErrorResponse(exchange, "IllegalArgumentException", "Illegal argument");
             return;
         }
 
         SizeReturn response = new SizeReturn(size);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
+        sendJsonResponse(exchange, 200, response);
     }
 
     public void fileWrite(String path, long offset, String data) throws IOException {
@@ -397,40 +407,36 @@ public class StorageServer {
         }
     }
 
-    public void storageWriteHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
-                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+    public void storageWriteHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
         WriteRequest request = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             request = gson.fromJson(requestBody, WriteRequest.class);
         } catch (Exception e) {
             e.printStackTrace();
-            exceptionHanler(w, "BadRequestException", "Bad Request", HttpServletResponse.SC_BAD_REQUEST);
+            sendErrorResponse(exchange, "BadRequestException", "Bad Request");
             return;
         }
 
         if (!request.path.isEmpty()) {
             request.path = Util.sanitizePath(request.path);
-            System.out.println("Santitized to dir" + request.path);
+            System.out.println("Sanitized to dir" + request.path);
         }
+        
         try {
             fileWrite(String.format("%s/%s", this.rootPath, request.path), request.offset, request.data);
         } catch (Exception e) {
             e.printStackTrace();
-            exceptionHanler(w, e.getClass().getSimpleName(), e.getMessage(), HttpServletResponse.SC_NOT_FOUND);
+            sendErrorResponse(exchange, e.getClass().getSimpleName(), e.getMessage());
             return;
         }
 
-        BooleanReturn response = new BooleanReturn(true);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
+        sendJsonResponse(exchange, 200, new BooleanReturn(true));
     }
 
     private String fileRead(String path, long offset, long length) throws IOException {
@@ -462,38 +468,33 @@ public class StorageServer {
         }
     }
 
-    public void storageReadHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
-                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+    public void storageReadHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
             return;
         }
 
         ReadRequest request = null;
-        try {
-            BufferedReader reader = r.getReader();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
             String requestBody = reader.lines().collect(Collectors.joining("\n"));
             request = gson.fromJson(requestBody, ReadRequest.class);
         } catch (Exception e) {
             e.printStackTrace();
-            exceptionHanler(w, "BadRequestException", "Bad Request", HttpServletResponse.SC_BAD_REQUEST);
+            sendErrorResponse(exchange, "BadRequestException", "Bad Request");
             return;
         }
 
         if (!request.path.isEmpty()) {
             request.path = Util.sanitizePath(request.path);
-            System.out.println("Santitized to dir" + request.path);
+            System.out.println("Sanitized to dir" + request.path);
         }
+        
         try {
             String data = fileRead(String.format("%s/%s", this.rootPath, request.path), request.offset, request.length);
-            DataReturn response = new DataReturn(data);
-            w.setContentType("application/json");
-            w.setStatus(HttpServletResponse.SC_OK);
-            w.getWriter().write(gson.toJson(response));
+            sendJsonResponse(exchange, 200, new DataReturn(data));
         } catch (Exception e) {
             e.printStackTrace();
-            exceptionHanler(w, e.getClass().getSimpleName(), e.getMessage(), HttpServletResponse.SC_NOT_FOUND);
-            return;
+            sendErrorResponse(exchange, e.getClass().getSimpleName(), e.getMessage());
         }
     }
 
@@ -555,6 +556,39 @@ public class StorageServer {
         }
     }
 
+    // Handle file copy between storage servers
+    public void storageCopyHandler(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            sendErrorResponse(exchange, "MethodNotAllowedException", "Method not allowed");
+            return;
+        }
+
+        CopyRequest copyRequest = null;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(exchange.getRequestBody()))) {
+            String requestBody = reader.lines().collect(Collectors.joining("\n"));
+            copyRequest = gson.fromJson(requestBody, CopyRequest.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            sendErrorResponse(exchange, "BadRequestException", "Bad Request");
+            return;
+        }
+
+        if (copyRequest.path == null || copyRequest.path.isEmpty() || 
+            copyRequest.server_ip == null || copyRequest.server_ip.isEmpty() ||
+            copyRequest.server_port <= 0) {
+            sendErrorResponse(exchange, "IllegalArgumentException", "Invalid request parameters");
+            return;
+        }
+
+        try {
+            boolean success = copyFile(copyRequest.path, copyRequest.server_ip, copyRequest.server_port);
+            sendJsonResponse(exchange, 200, new BooleanReturn(success));
+        } catch (Exception e) {
+            e.printStackTrace();
+            sendErrorResponse(exchange, e.getClass().getSimpleName(), e.getMessage());
+        }
+    }
+
     // Same method as delete call, create call and write call
     private BooleanReturn createCallToStorageServer(String url, String path) {
         PathRequest pathRequest = new PathRequest(path);
@@ -574,12 +608,8 @@ public class StorageServer {
                 System.err.println("Error from naming server: " + response.statusCode());
                 return new BooleanReturn(false);
             }
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException e) {
             e.printStackTrace();
-            return new BooleanReturn(false);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-            Thread.currentThread().interrupt();
             return new BooleanReturn(false);
         }
     }
@@ -617,45 +647,7 @@ public class StorageServer {
 
         String writeUrl = String.format("http://%s:%d/storage_write", "localhost", this.commandPort);
         BooleanReturn writeReturn = createCallToStorageServer(writeUrl, remotePath);
-        if (!writeReturn.success) {
-            throw new IllegalArgumentException("Remote path does not exist");
-        }
-        return true;
-    }
-
-    public void storageCopyHandler(HttpServletResponse w, HttpServletRequest r) throws IOException {
-        if (r.getMethod() != "POST") {
-            exceptionHanler(w, "MethodNotAllowedException", "Method not allowed",
-                    HttpServletResponse.SC_METHOD_NOT_ALLOWED);
-            return;
-        }
-
-        CopyRequest copyFileRequest = null;
-        try {
-            BufferedReader reader = r.getReader();
-            String requestBody = reader.lines().collect(Collectors.joining("\n"));
-            copyFileRequest = gson.fromJson(requestBody, CopyRequest.class);
-        } catch (Exception e) {
-            e.printStackTrace();
-            exceptionHanler(w, "BadRequestException", "Bad Request", HttpServletResponse.SC_BAD_REQUEST);
-            return;
-        }
-
-        if (!copyFileRequest.path.isEmpty()) {
-            copyFileRequest.path = Util.sanitizePath(copyFileRequest.path);
-            System.out.println("Santitized to dir" + copyFileRequest.path);
-        }
-
-        boolean success = copyFile(copyFileRequest.path, copyFileRequest.server_ip, copyFileRequest.server_port);
-        if (!success) {
-            exceptionHanler(w, "IllegalArgumentException", "Illegal argument", HttpServletResponse.SC_NOT_FOUND);
-            return;
-        }
-
-        BooleanReturn response = new BooleanReturn(success);
-        w.setContentType("application/json");
-        w.setStatus(HttpServletResponse.SC_OK);
-        w.getWriter().write(gson.toJson(response));
+        return writeReturn.success;
     }
 
     public static void main(String[] args) {
@@ -685,13 +677,57 @@ public class StorageServer {
             // List files in the storage directory
             server.files = server.listFilesRelativePaths(storagePath);
 
+            // Create HTTP server for client requests
+            HttpServer clientServer = HttpServer.create(new InetSocketAddress(clientPort), 0);
+            
+            // Create HTTP server for command requests
+            HttpServer commandServer = HttpServer.create(new InetSocketAddress(commandPort), 0);
+
+            // Set up handlers for client server
+            clientServer.createContext("/client-endpoint", exchange -> {
+                // Handle client requests
+                server.clientHandler(exchange);
+            });
+
+            // Set up handlers for command server
+            commandServer.createContext("/command-endpoint", exchange -> {
+                // Handle command requests
+                server.commandHandler(exchange);
+            });
+
+            // Set up storage operation handlers
+            commandServer.createContext("/storage_create", exchange -> {
+                server.storageCreateHandler(exchange);
+            });
+            commandServer.createContext("/storage_size", exchange -> {
+                server.storageSizeHandler(exchange);
+            });
+            commandServer.createContext("/storage_read", exchange -> {
+                server.storageReadHandler(exchange);
+            });
+            commandServer.createContext("/storage_write", exchange -> {
+                server.storageWriteHandler(exchange);
+            });
+            commandServer.createContext("/storage_delete", exchange -> {
+                server.storageDeleteHandler(exchange);
+            });
+            commandServer.createContext("/storage_copy", exchange -> {
+                server.storageCopyHandler(exchange);
+            });
+
+            // Start servers with thread pools
+            clientServer.setExecutor(Executors.newFixedThreadPool(10));
+            commandServer.setExecutor(Executors.newFixedThreadPool(10));
+            
+            clientServer.start();
+            commandServer.start();
+
             // Register with the naming server
             server.registerStorageServer();
 
-            // TODO: Start HTTP server for client and command ports
             System.out.println("Storage server started successfully");
-            System.out.println("Client Port: " + clientPort);
-            System.out.println("Command Port: " + commandPort);
+            System.out.println("Client server listening on port: " + clientPort);
+            System.out.println("Command server listening on port: " + commandPort);
             System.out.println("Registration Port: " + registrationPort);
             System.out.println("Storage Path: " + storagePath);
 
