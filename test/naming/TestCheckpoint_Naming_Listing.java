@@ -10,6 +10,8 @@ import test.util.TestUtil;
 import java.io.IOException;
 import java.net.http.HttpResponse;
 
+import java.util.List;
+
 /** Tests the naming server <code>list</code> and <code>isDirectory</code>
     methods.
 
@@ -76,7 +78,7 @@ public class TestCheckpoint_Naming_Listing extends NamingTest {
     private void checkDirectoryListing(String path, String[] expected_children,
                                        boolean[] expected_kinds) throws TestFailed {
         // List the given directory.
-        String[] listing;
+        List<String> listing;
         HttpResponse<String> response;
         PathRequest request;
         String exception_type;

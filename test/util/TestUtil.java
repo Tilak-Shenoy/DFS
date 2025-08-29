@@ -12,10 +12,10 @@ public abstract class TestUtil {
      with the same counts, regardless of their order, and
      <code>false</code> otherwise.
      */
-    public static <T> boolean sameElements(T[] array1, T[] array2) {
+    public static <T> boolean sameElements(List<T> array1, T[] array2) {
         // If the arrays have different sizes, they cannot have the same
         // elements.
-        if(array1.length != array2.length)
+        if(array1.size() != array2.length)
             return false;
 
         // Create a multiset - a mapping from element values to appearance

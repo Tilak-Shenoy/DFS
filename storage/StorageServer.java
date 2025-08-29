@@ -267,7 +267,7 @@ public class StorageServer {
     public SuccessfulRegistrationResponse makeCallToNamingServer() {
         String url = String.format("http://127.0.0.1:%d/register", this.naminServerPort);
         RegisterRequest body = new RegisterRequest("127.0.0.1", this.clientPort, this.commandPort,
-                this.files.toArray(new String[this.files.size()]));
+                files);
 
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder()

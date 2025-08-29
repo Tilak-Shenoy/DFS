@@ -87,7 +87,7 @@ public class NameServer {
 
             this.fileSystem.printTree(1);
 
-            if (!(data.files.length == 1 && data.files[0].equals("/"))){
+            if (!(data.files.size() == 1 && data.files.get(0).equals("/"))){
                 this.mu.lock();
                 for (String filename: data.files){
                     TreeNode newNode = this.fileSystem.findNode(filename);

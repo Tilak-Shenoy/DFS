@@ -13,6 +13,8 @@ import common.BooleanReturn;
 import common.FilesReturn;
 import common.RegisterRequest;
 import common.ServerInfo;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.google.gson.Gson;
 import com.sun.net.httpserver.HttpServer;
@@ -97,7 +99,7 @@ public class TestStorageServer {
          @return A HTTP response returned by naming server.
          @throws TestFailed If registration request can't be sent to the naming server.
      */
-    public HttpResponse<String> register(Gson gson, int naming_register_port, String[] files) throws TestFailed {
+    public HttpResponse<String> register(Gson gson, int naming_register_port, List<String> files) throws TestFailed {
         int storagePort = this.client_service.getAddress().getPort();
         int commandPort = this.command_service.getAddress().getPort();
 
@@ -148,19 +150,19 @@ public class TestStorageServer {
         // Start storage server services.
         startServices();
 
-        String[] files = new String[offer_files.length];
+        List<String> files = new ArrayList<>();
 
-        for(int i = 0; i < files.length; i++) {
-            files[i] = offer_files[i].toString();
+        for(int i = 0; i < offer_files.length; i++) {
+            files.add(offer_files[i].toString());
         }
 
         // Register the storage server with the naming server.
         HttpResponse<String> response = register(gson, naming_register_port, files);
         files = gson.fromJson(response.body(), FilesReturn.class).files;
 
-        Path[] delete_files = new Path[files.length];
-        for(int i = 0; i < files.length; i++) {
-            delete_files[i] = new Path(files[i]);
+        List<Path> delete_files = new ArrayList<>();
+        for(int i = 0; i < files.size(); i++) {
+            delete_files.add(new Path(files.get(i)));
         }
 
         // Check that the naming server replied with the appropriate files.

@@ -185,7 +185,7 @@ public class TestNamingServer {
                     }
                 }
 
-                FilesReturn filesReturn = new FilesReturn(to_be_deleted_files.toArray(new String[0]));
+                FilesReturn filesReturn = new FilesReturn(to_be_deleted_files);
                 respText = gson.toJson(filesReturn);
                 returnCode = 200;
             } else {

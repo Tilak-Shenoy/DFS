@@ -1,7 +1,8 @@
 package test.storage;
 
 import java.io.*;
-
+import java.util.List;
+import java.util.Arrays;
 import test.common.Path;
 import test.util.TestFailed;
 import test.util.TestUtil;
@@ -63,8 +64,8 @@ public class TestCheckpoint_Storage_Registration extends StorageTest {
         } catch(FileNotFoundException e) {
             throw new TestFailed("cannot list storage server root directory", e);
         }
-
-        if(!TestUtil.sameElements(listed, remaining_files)) {
+        List<Path> listedList = Arrays.asList(listed);
+        if(!TestUtil.sameElements(listedList, remaining_files)) {
             throw new TestFailed("storage server did not remove correct " +
                                  "files after registration");
         }

@@ -3,6 +3,7 @@ package test.naming;
 import common.ExceptionReturn;
 import test.common.*;
 import test.util.TestFailed;
+import java.util.ArrayList;
 
 import java.io.IOException;
 import java.net.http.HttpResponse;
@@ -207,7 +208,7 @@ public class TestCheckpoint_Naming_Registration extends NamingTest {
             // Register the storage server with the naming server. This
             // registration should succeed.
             try {
-                response = register(gson, registration_port, new String[0]);
+                response = register(gson, registration_port, new ArrayList<String>());
                 String exception_type = gson.fromJson(response.body(), ExceptionReturn.class).exception_type;
                 if(exception_type != null) {
                     if(DFSException.valueOf(exception_type) == DFSException.IllegalStateException) {
@@ -232,7 +233,7 @@ public class TestCheckpoint_Naming_Registration extends NamingTest {
             // Attempt to register the storage server with the naming server a
             // second time. The test is failed if this registration succeeds.
             try {
-                response = register(gson, registration_port, new String[0]);
+                response = register(gson, registration_port, new ArrayList<String>());
                 String exception_type = gson.fromJson(response.body(), ExceptionReturn.class).exception_type;
                 if(exception_type == null) {
                     throw new TestFailed("naming server accepted duplicate " +
