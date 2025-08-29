@@ -80,17 +80,14 @@ public class StorageServer {
     }
 
     public boolean createFileMain(String path) {
-        String error = "";
 
         if (path.isEmpty()) {
             System.out.println("empty arg error during create dir");
-            error = "IllegalArgumentException";
             return false;
         }
 
         if ("/".equals(path)) {
             System.out.println("root arg error during create dir");
-            error = "";
             return false;
         }
 
